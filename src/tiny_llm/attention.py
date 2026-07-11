@@ -1,3 +1,4 @@
+import math
 import mlx.core as mx
 from .basics import softmax, linear
 
@@ -9,7 +10,18 @@ def scaled_dot_product_attention_simple(
     scale: float | None = None,
     mask: mx.array | None = None,
 ) -> mx.array:
-    pass
+    d_k = query.shape[-1]
+
+    if scale is None:
+        scale = 1.0 / math.sqrt(d_k)
+
+    scores = mx.matmul(query, mx.swapaxes(key, -1, -2)) * scale
+
+    if mask is not None:
+        scores = scores + mask
+
+    attention_probs = softmax(scores, axis=-1)
+    return mx.matmul(attention_probs, value)
 
 
 class SimpleMultiHeadAttention:
@@ -22,7 +34,16 @@ class SimpleMultiHeadAttention:
         wv: mx.array,
         wo: mx.array,
     ):
-        pass
+        self.hidden_size = hidden_size
+        self.num_heads = num_heads
+
+        assert hidden_size % num_heads == 0  # must be an int
+        self.head_dim = self.hidden_size // self.num_heads
+
+        self.wq = wq
+        self.wk = wk
+        self.wv = wv
+        self.wo = wo
 
     def __call__(
         self,
@@ -31,7 +52,28 @@ class SimpleMultiHeadAttention:
         value: mx.array,
         mask: mx.array | None = None,
     ) -> mx.array:
-        pass
+        query_tensor = linear(query, self.wq)  # (N, L, H * D)
+        key_tensor = linear(key, self.wk)
+        value_tensor = linear(value, self.wv)
+
+        # split ea token embedding into multiple attn heads
+        assert query.shape == key.shape == value.shape
+        N, L, _ = query_tensor.shape
+        H, D = self.num_heads, self.head_dim
+
+        query_reshaped = mx.reshape(query_tensor, (N, L, H, D)).swapaxes(1, 2)
+        key_reshaped = mx.reshape(key_tensor, (N, L, H, D)).swapaxes(1, 2)
+        value_reshaped = mx.reshape(value_tensor, (N, L, H, D)).swapaxes(1, 2)
+
+        # calc attn indep for ea head
+        attention = scaled_dot_product_attention_simple(
+            query_reshaped, key_reshaped, value_reshaped, mask=mask
+        )
+        # merge attn heads back into single embedding per token
+        attention = attention.swapaxes(1, 2).reshape(N, L, H * D)
+
+        # project concatenated heads back to model embedding dim
+        return linear(attention, self.wo)  # (N, L, E)
 
 
 def causal_mask(L: int, S: int, dtype: mx.Dtype) -> mx.array:
