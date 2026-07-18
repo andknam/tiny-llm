@@ -87,7 +87,38 @@ def scaled_dot_product_attention_grouped(
     scale: float | None = None,
     mask: mx.array | str | None = None,
 ) -> mx.array:
-    pass
+    H_q, L, D = query.shape[-3:]
+    batch_shape = query.shape[:-3]
+
+    H, S, _ = key.shape[-3:]
+
+    n_repeats = H_q // H
+
+    if scale is None:
+        scale = 1.0 / math.sqrt(D)
+
+    # (N, H, n_repeats, L, D)
+    # split query heads into groups that share same K/V head (H)
+    query_reshaped = mx.reshape(query, (*batch_shape, H, n_repeats, L, D))
+
+    # add broadcast dim so K/V head is reused across its query group
+    key_expanded = mx.expand_dims(key, axis=-3)  # (N, H, 1, S, D)
+    value_expanded = mx.expand_dims(value, axis=-3)  # (N, H, 1, S, D)
+
+    scores = mx.matmul(query_reshaped, mx.swapaxes(key_expanded, -1, -2)) * scale
+
+    if mask is not None:
+        # reshape mask to match grouped query heads
+        mask = mx.reshape(mask, (*batch_shape, H, n_repeats, L, S))
+        scores = scores + mask
+
+    attention_probs = softmax(scores, axis=-1)
+    output = mx.matmul(attention_probs, value_expanded)
+
+    return mx.reshape(
+        output,
+        (*batch_shape, H_q, L, D),
+    )
 
 
 def flash_attention(
