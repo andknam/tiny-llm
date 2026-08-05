@@ -100,10 +100,28 @@ class Qwen3MLP:
         w_up: mx.array,
         w_down: mx.array,
     ):
-        pass
+        self.dim = dim
+        self.hidden_dim = hidden_dim
+
+        self.w_gate = w_gate
+        self.w_up = w_up
+        self.w_down = w_down
+
+        assert self.w_gate.shape == (hidden_dim, dim)
+        assert self.w_up.shape == (hidden_dim, dim)
+        assert self.w_down.shape == (dim, hidden_dim)
 
     def __call__(self, x: mx.array) -> mx.array:
-        pass
+        gate_proj = mx.matmul(x, mx.transpose(self.w_gate))
+        gate = silu(gate_proj)
+
+        up = mx.matmul(x, mx.transpose(self.w_up))
+
+        hidden = gate * up
+
+        output = mx.matmul(hidden, mx.transpose(self.w_down))
+
+        return output
 
 
 class Qwen3TransformerBlock:
