@@ -147,14 +147,83 @@ class Qwen3TransformerBlock:
         max_seq_len: int = 32768,
         theta: int = 1000000,
     ):
-        pass
+        # model dims
+        self.num_attention_heads = num_attention_heads
+        self.num_kv_heads = num_kv_heads
+        self.hidden_size = hidden_size
+        self.head_dim = head_dim
+        self.intermediate_size = intermediate_size
+        self.rms_norm_eps = rms_norm_eps
+
+        # attn weights
+        self.wq = wq
+        self.wk = wk
+        self.wv = wv
+        self.wo = wo
+
+        # q/k norm weights
+        self.q_norm = q_norm
+        self.k_norm = k_norm
+
+        # RoPE config
+        self.max_seq_len = max_seq_len
+        self.theta = theta
+
+        # self attn
+        self.self_attn = Qwen3MultiHeadAttention(
+            self.hidden_size,
+            self.num_attention_heads,
+            self.num_kv_heads,
+            self.head_dim,
+            self.wq,
+            self.wk,
+            self.wv,
+            self.wo,
+            self.q_norm,
+            self.k_norm,
+            self.max_seq_len,
+            self.theta,
+            self.rms_norm_eps,
+        )
+
+        # mlp weights
+        self.w_gate = w_gate
+        self.w_up = w_up
+        self.w_down = w_down
+
+        # mlp
+        self.mlp = Qwen3MLP(
+            self.hidden_size,
+            self.intermediate_size,
+            self.w_gate,
+            self.w_up,
+            self.w_down,
+        )
+
+        # transformer-layer norm weights
+        self.w_input_layernorm = w_input_layernorm
+        self.w_post_attention_layernorm = w_post_attention_layernorm
+
+        # layer norm
+        self.input_layernorm = RMSNorm(
+            self.hidden_size, self.w_input_layernorm, self.rms_norm_eps
+        )
+        self.post_attention_layernorm = RMSNorm(
+            self.hidden_size, self.w_post_attention_layernorm, self.rms_norm_eps
+        )
 
     def __call__(
         self,
         x: mx.array,
         mask: mx.array | str | None = None,
     ) -> mx.array:
-        pass
+        attention_output = self.self_attn(self.input_layernorm(x), mask)
+        hidden = x + attention_output
+
+        mlp_output = self.mlp(self.post_attention_layernorm(hidden))
+        output = hidden + mlp_output
+
+        return output
 
 
 class Qwen3ModelWeek1:
